@@ -1,1 +1,1 @@
-from view import verify_openid
+from .view import verify_openid

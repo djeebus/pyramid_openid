@@ -12,25 +12,29 @@ TODO:
             request with openid field that comes back successful
                     and calls callback
 """
-import urlparse
+from six.moves.urllib import parse as urlparse
 
-import openid
-from openid.store import memstore, filestore, sqlstore
 from openid.consumer import consumer
-from openid.oidutil import appendArgs
-from openid.cryptutil import randomString
-from openid.fetchers import setDefaultFetcher, Urllib2Fetcher
-from openid.extensions import pape, sreg, ax
+from openid.extensions import sreg, ax
 
 from pyramid.httpexceptions import HTTPFound
 from pyramid.httpexceptions import HTTPBadRequest
-from pyramid.security import remember
 
 from itertools import chain
 
 import logging
 
 log = logging.getLogger(__name__)
+
+from openid.store import filestore
+from openid.store import memstore
+
+try:
+    from openid.store import sqlstore
+except ImportError:
+    log.warn('failed to import openid.store.sqlstore')
+
+
 
 def get_ax_required_from_settings(settings):
     ax_required = {}
@@ -72,7 +76,7 @@ def verify_openid(context, request):
     return HTTPBadRequest()
 
 
-def worthless_callback(request, success_dict, success_dict = {}):
+def worthless_callback(request, success_dict=None):
     pass
 
 
@@ -126,10 +130,10 @@ def process_incoming_request(context, request, incoming_openid_url):
             sreq = sreg.SRegRequest(required=sreg_required,
                     optional=sreg_optional)
             openid_request.addExtension(sreq)
-    except consumer.DiscoveryFailure, exc:
+    except consumer.DiscoveryFailure as exc:
         # eventually no openid server could be found
         return error_to_login_form(request, 'Error in discovery: %s' % exc[0])
-    except KeyError, exc:
+    except KeyError as exc:
         # TODO: when does that happen, why does plone.openid use "pass" here?
         return error_to_login_form(request, 'Error in discovery: %s' % exc[0])
     # not sure this can still happen but we are making sure.
@@ -141,10 +145,14 @@ def process_incoming_request(context, request, incoming_openid_url):
     #Not sure what the point of setting this to anything else is
     realm_name = settings.get('openid.realm_name', request.host_url)
     temp_url = urlparse.urlparse(request.url)
-    temp_url_qs = urlparse.parse_qs(temp_url.query)
+    temp_url_qs = dict(urlparse.parse_qsl(temp_url.query))
     temp_url_qs.pop(settings.get('openid.param_field_name', 'openid'))
-    return_url = urlparse.urlunsplit((temp_url.scheme, temp_url.netloc, \
-                 temp_url.path, temp_url_qs, temp_url.fragment))
+    temp_url_qs = urlparse.urlencode(temp_url_qs)
+    return_url = urlparse.urlunsplit((
+        temp_url.scheme, temp_url.netloc,
+        temp_url.path, temp_url_qs,
+        temp_url.fragment,
+    ))
     redirect_url = openid_request.redirectURL(realm_name, return_url)
     log.info('Realm Name: %s' % realm_name)
     log.info('Return URL from provider will be: %s' % return_url)
